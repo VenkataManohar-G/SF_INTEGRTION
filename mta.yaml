@@ -1,0 +1,112 @@
+_schema-version: 3.3.0
+ID: dms_sf_integration
+version: 1.0.0
+description: "A simple CAP project."
+parameters:
+  enable-parallel-deployments: true
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - npm ci
+        - npx cds build --production
+modules:
+  - name: dms_sf_integration-srv
+    type: nodejs
+    path: gen/srv
+    parameters:
+      instances: 1
+      buildpack: nodejs_buildpack
+      routes:
+        - route: "${default-url}"
+        - route: "${default-host}.cert.${default-domain}"
+    build-parameters:
+      builder: npm-ci
+    provides:
+      - name: srv-api # required by consumers of CAP services (e.g. approuter)
+        properties:
+          srv-url: ${default-url}
+          srv-cert-url: '${protocol}://${default-host}.cert.${default-domain}'
+    requires:
+      - name : dmsintegration_destination
+      - name: dms_sf_integration-ias
+        parameters:
+          config:
+            credential-type: X509_GENERATED
+            app-identifier: srv
+    deployed-after:
+      - dms_sf_integration-ams-policies-deployer
+    properties:
+      AMS_DCL_ROOT: ams/dcl
+  - name: dms_sf_integration-ams-policies-deployer
+    type: javascript.nodejs
+    path: gen/policies
+    parameters:
+      buildpack: nodejs_buildpack
+      no-route: true
+      no-start: true
+      tasks:
+        - name: deploy-dcl
+          command: npm start
+          memory: 512M
+    requires:
+      - name: dms_sf_integration-ias
+        parameters:
+          config:
+            credential-type: X509_GENERATED
+            app-identifier: ams-policy-deployer
+
+  - name: dms_sf_integration-approuter
+    type: approuter.nodejs
+    path: approuter
+    parameters:
+      disk-quota: 256M
+      memory: 256M
+    provides:
+      - name: dms_sf_integration-router
+        properties:
+          url: ${default-url}
+    requires:
+      - name: dms_sf_integration-ias
+      - name: srv-api
+        group: destinations
+        properties:
+          name: srv
+          url: ~{srv-url}
+          forwardAuthToken: true
+
+resources:
+  - name: dmsintegration_destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite
+      service-name: dmsintegration_destination
+  - name: dms_sf_integration-ias
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: identity
+      service-name: dms_sf_integration-ias
+      service-plan: application
+      config:
+        provided-apis:
+          - name: dms_sf_integration-ias-api
+            description: API exposed by the application
+        display-name: dms_sf_integration
+        oauth2-configuration:
+          redirect-uris:
+            - https://*.cfapps.us10-001.hana.ondemand.com/**
+            - https://amphastar-pharmaceuticals-inc-integrationsuite-amphdev-3f41b745.cfapps.us10-001.hana.ondemand.com/login/callback
+          post-logout-redirect-uris:
+            - https://*.cfapps.us10-001.hana.ondemand.com/**
+            - https://amphastar-pharmaceuticals-inc-integrationsuite-amphdev-3f41b745.cfapps.us10-001.hana.ondemand.com/
+          grant-types:
+            - authorization_code
+            - refresh_token
+            - client_credentials
+          token-validity: 3600
+          token-policy:
+            access-token-format: jwt
+        authorization:
+          enabled: true
+        xsuaa-cross-consumption: true

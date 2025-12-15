@@ -1,0 +1,9 @@
+{
+  "name": "dms_sf_integration-approuter",
+  "dependencies": {
+    "@sap/approuter": "^12"
+  },
+  "scripts": {
+    "start": "node node_modules/@sap/approuter/approuter.js"
+  }
+}
